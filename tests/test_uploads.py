@@ -1,4 +1,6 @@
 import hashlib
+import shutil
+from unittest.mock import patch
 from tests.test_api import APIFixture
 
 
@@ -28,6 +30,24 @@ class ResumableTests(APIFixture):
         body = self.client.ok(self.url + "/assets/" + first["id"] + "/media")
         self.assertEqual(body, b"abc")
         self.assertEqual(len(self.snapshot()["assets"]), 1)
+
+    def test_completed_asset_is_committed_before_staging_cleanup(self):
+        upload = self.begin()
+        self.assertEqual(self.part(upload, b"abc")[0], 200)
+        original = shutil.rmtree
+
+        def check_before_cleanup(*args, **kwargs):
+            with self.app.store.connect() as db:
+                row = db.execute(
+                    "SELECT asset FROM uploads WHERE id=?", (upload,)
+                ).fetchone()
+                self.assertIsNotNone(row["asset"])
+            return original(*args, **kwargs)
+
+        with patch(
+            "branchframe.uploads.shutil.rmtree", side_effect=check_before_cleanup
+        ):
+            self.client.ok(self.url + "/uploads/" + upload + "/complete", {})
 
     def test_bad_checksum_rejected(self):
         upload = self.begin()

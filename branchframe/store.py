@@ -4,6 +4,8 @@ import contextlib
 import os
 from pathlib import Path
 import sqlite3
+import tempfile
+import shutil
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,name TEXT NOT NULL,password TEXT NOT NULL);
@@ -62,12 +64,18 @@ class Store:
         return path
 
     def put(self, key, source):
-        import shutil
-
         target = self.path(key)
         target.parent.mkdir(parents=True, exist_ok=True)
         if Path(source).resolve() != target:
-            shutil.copyfile(source, target)
+            with tempfile.NamedTemporaryFile(
+                dir=target.parent, delete=False
+            ) as staging:
+                temporary = Path(staging.name)
+            try:
+                shutil.copyfile(source, temporary)
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
         if self.s3:
             self.s3.upload_file(str(target), self.bucket, key)
         return key
@@ -76,5 +84,13 @@ class Store:
         target = self.path(key)
         if not target.exists() and self.s3:
             target.parent.mkdir(parents=True, exist_ok=True)
-            self.s3.download_file(self.bucket, key, str(target))
+            with tempfile.NamedTemporaryFile(
+                dir=target.parent, delete=False
+            ) as staging:
+                temporary = Path(staging.name)
+            try:
+                self.s3.download_file(self.bucket, key, str(temporary))
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
         return target

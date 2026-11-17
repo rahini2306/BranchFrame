@@ -1,6 +1,6 @@
 # Deploying the cloud demo
 
-The included Terraform describes a restricted demonstration deployment. Its HCL has been parsed and formatting checked; local provider validation was blocked by a provider startup error. CI also runs provider validation. No AWS resources were created during local development. Account-specific IAM, DNS, service quotas, networking, and operational behavior still require a real deployment test.
+The included Terraform describes a restricted demonstration deployment. Its Terraform configuration is validated by GitHub Actions; local execution also checks formatting. No AWS resources were created during local development. Account-specific IAM, DNS, service quotas, networking, and operational behavior still require a real deployment test.
 
 ## Resources
 

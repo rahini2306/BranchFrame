@@ -6,6 +6,18 @@ Branch a timeline, commit an edit, compare revisions, resolve conflicting change
 
 Built as a cloud/backend engineering portfolio project. The application runs locally with Python and FFmpeg; AWS infrastructure provisions private S3 media storage, an HTTPS API host, and independent ECS Fargate render workers.
 
+## Design and workspace
+
+The interface follows a pink-and-green pixel-art direction with self-hosted **VT323** display lettering and **Space Grotesk** UI text. Fonts include their OFL licenses. Desktop and mobile layouts share the same visual language.
+
+- [Editable Figma file — six screens](https://www.figma.com/design/OTbmffP6Old0d3wdNRsOqv/BranchFrame-Pixel-Playground?node-id=3-15)
+- Open `BranchFrame.code-workspace` in VS Code to load the complete project.
+- `/` is the public landing page; `/studio` is the application.
+- [Design source, tokens, and previews](design/README.md)
+- [Final verification notes](docs/FINAL_REVIEW.md)
+
+![Editor design preview — editable sample content in Figma](design/editor-preview.png)
+
 ## What you can do
 
 - Create private projects and invite registered teammates as editors or reviewers.
@@ -28,7 +40,7 @@ python -m pip install -r requirements.txt
 python run.py
 ```
 
-Open **http://127.0.0.1:8000** and create an account. `imageio-ffmpeg` supplies the optional rendering binary. An existing system FFmpeg/ffprobe installation also works. Without either, editing and version control work while export jobs wait for a renderer.
+Open **http://127.0.0.1:8000** and choose **open studio** to create an account. `imageio-ffmpeg` supplies the optional rendering binary. An existing system FFmpeg/ffprobe installation also works. Without either, editing and version control work while export jobs wait for a renderer.
 
 On Windows, activate with `.venv\Scripts\activate`.
 

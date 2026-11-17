@@ -690,11 +690,12 @@ class Handler(BaseHTTPRequestHandler):
             )
         if self.command != "GET":
             raise APIError(405, "Method not allowed")
-        target = (
-            (WEB / unquote(path).lstrip("/")).resolve()
-            if path != "/"
-            else WEB / "index.html"
-        )
+        if path == "/":
+            target = WEB / "landing.html"
+        elif path in ("/studio", "/studio/"):
+            target = WEB / "index.html"
+        else:
+            target = (WEB / unquote(path).lstrip("/")).resolve()
         if not target.is_relative_to(WEB):
             raise APIError(404, "Not found")
         return self.file(

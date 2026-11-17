@@ -11,7 +11,8 @@ const state = {
   dirty: false,
   register: false,
   tab: 'editor',
-  merge: null
+  merge: null,
+  uploading: false
 };
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({
   '&': '&amp;',
@@ -93,6 +94,10 @@ function markDirty() {
 }
 
 function confirmDiscard() {
+  if (state.uploading) {
+    toast('Let this upload finish before changing projects or branches.', true);
+    return false;
+  }
   return !state.dirty || window.confirm('Discard your uncommitted timeline changes?')
 }
 
@@ -332,6 +337,7 @@ function renderReviews() {
 }
 
 function renderExports() {
+  state.renderedExportSignature = JSON.stringify(state.project.renders);
   $('exports').innerHTML = [...state.project.renders].sort((a, b) => b.created - a.created).map(r => `<article class="export-card"><div class="section-heading"><div><h3>Export ${r.id.slice(0,8)}</h3><p class="small muted">Commit ${r.commit_id.slice(0,8)} · ${date(r.created)} · ${r.cache_hits} cached segments reused</p></div><span class="badge ${e(r.status)}">${e(r.status)}</span></div>${r.jobs.map(j=>`<div class="job">${j.kind==='segment'?'Clip '+(j.position+1):'Assemble final video'} · ${e(j.status)} · ${j.attempts} attempts${j.error?' · '+e(j.error):''}</div>`).join('')}${r.status==='done'?`<video controls preload="metadata" src="/api/projects/${state.project.id}/renders/${r.id}/media"></video><p><a href="/api/projects/${state.project.id}/renders/${r.id}/media" download="branchframe-${r.id.slice(0,8)}.mp4">Download MP4 ↗</a></p>`:r.status==='failed'?`<p class="small">${e(r.error)}. Fix the source clip or renderer, then submit a new export.</p>`:'<p class="small muted">Workers process this export in the background. Status updates automatically.</p>'}</article>`).join('') || '<div class="empty">Your next finished cut will appear here.<br>Commit your timeline, then request an export.</div>'
 }
 
@@ -339,6 +345,7 @@ function renderTeam() {
   $('team').innerHTML = state.project.members.map(m => `<div class="member"><div><strong>${e(m.name)}</strong><small>${e(m.email)}</small></div><span class="badge">${e(m.role)}</span></div>`).join('')
 }
 async function createBranch(cid = head()) {
+  if (!confirmDiscard()) return;
   const name = await ask('Explore a new direction.', 'Create an independent branch from commit ' + cid.slice(0, 8) + '.', 'Branch name');
   if (!name) return;
   await projectAPI('branches', {
@@ -410,10 +417,7 @@ $('branch-select').onchange = () => {
   state.dirty = false;
   renderProject()
 };
-$('new-branch').onclick = safe(async () => {
-  if (!confirmDiscard()) return;
-  await createBranch()
-});
+$('new-branch').onclick = safe(() => createBranch());
 $('commit-button').onclick = safe(async () => {
   const message = await ask('Keep this version.', 'Your commit saves the current timeline on ' + state.branch + '.', 'Commit message');
   if (!message) return;
@@ -426,16 +430,18 @@ $('commit-button').onclick = safe(async () => {
   await refresh();
   toast('Changes committed.')
 });
-async function uploadVideo(file) {
+async function uploadVideo(file, projectId) {
+  const base = '/api/projects/' + projectId;
+  const uploadAPI = (path, data) => api(base + '/' + path, data);
   if (file.size > 250 * 1048576) throw new Error('Choose a video under 250 MB');
   const hash = async buffer => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)), b => b.toString(16).padStart(2, '0')).join('');
   const fingerprint = await hash(new TextEncoder().encode(file.name + ':' + file.size + ':' + file.lastModified));
-  const session = await projectAPI('uploads', {
+  const session = await uploadAPI('uploads', {
     name: file.name,
     size: file.size,
     fingerprint
   });
-  const status = await projectAPI('uploads/' + session.id);
+  const status = await uploadAPI('uploads/' + session.id);
   const total = Math.ceil(file.size / session.part_size);
   for (let i = 0; i < total; i++) {
     const block = await file.slice(i * session.part_size, Math.min(file.size, (i + 1) * session.part_size)).arrayBuffer();
@@ -444,7 +450,7 @@ async function uploadVideo(file) {
       let success = false;
       for (let attempt = 0; attempt < 3 && !success; attempt++) {
         try {
-          const response = await fetch('/api/projects/' + state.project.id + '/uploads/' + session.id + '/parts/' + i, {
+          const response = await fetch(base + '/uploads/' + session.id + '/parts/' + i, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/octet-stream',
@@ -460,19 +466,31 @@ async function uploadVideo(file) {
         }
       }
     }
-    toast('Uploading ' + file.name + ' · ' + Math.round((i + 1) / total * 100) + '%');
+    const percent = Math.round((i + 1) / total * 100);
+    $('upload-status').textContent = 'Uploading ' + file.name + ' · ' + percent + '%';
+    $('upload-progress').firstElementChild.style.width = percent + '%';
   }
-  await projectAPI('uploads/' + session.id + '/complete', {});
+  await uploadAPI('uploads/' + session.id + '/complete', {});
 }
 $('upload').onchange = safe(async () => {
   const file = $('upload').files[0];
   if (!file) return;
+  const projectId = state.project.id;
+  state.uploading = true;
   $('upload').disabled = true;
+  $('upload-status').textContent = 'Preparing ' + file.name + '…';
+  $('upload-progress').classList.remove('hidden');
   try {
-    await uploadVideo(file);
+    await uploadVideo(file, projectId);
     await refresh(true);
+    $('upload-status').textContent = 'Upload complete. Your footage is ready.';
     toast('Footage added to your library.')
+  } catch (error) {
+    $('upload-status').textContent = error.message;
+    throw error;
   } finally {
+    state.uploading = false;
+    $('upload-progress').classList.add('hidden');
     $('upload').value = '';
     $('upload').disabled = !editable()
   }
@@ -516,7 +534,7 @@ $('team-form').onsubmit = safe(async event => {
 $('refresh-exports').onclick = safe(() => refresh(true));
 document.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => selectTab(button.dataset.tab));
 window.addEventListener('beforeunload', event => {
-  if (state.dirty) {
+  if (state.dirty || state.uploading) {
     event.preventDefault();
     event.returnValue = ''
   }
@@ -524,11 +542,15 @@ window.addEventListener('beforeunload', event => {
 setInterval(async () => {
   if (state.user && state.project && state.tab === 'exports' && !document.hidden) {
     try {
-      state.project = await projectAPI();
-      renderExports()
+      const updated = await projectAPI();
+      if (!state.project || updated.id !== state.project.id) return;
+      state.project = updated;
+      const playing = Array.from($('exports').querySelectorAll('video')).some(v => !v.paused);
+      if (!playing && state.renderedExportSignature !== JSON.stringify(updated.renders)) renderExports();
     } catch (error) {
       console.warn(error.message)
     }
   }
 }, 4000);
+if (new URLSearchParams(location.search).get('auth') === 'register') $('auth-toggle').click();
 boot();

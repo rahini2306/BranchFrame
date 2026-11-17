@@ -144,8 +144,9 @@ def handle(handler, project, user, tail):
                 (aid, project, row["name"], sha.hexdigest(), row["size"], time.time()),
             )
             db.execute("UPDATE uploads SET asset=? WHERE id=?", (aid, upload_id))
-            # Keep metadata for idempotent completion while discarding staged bytes.
-            shutil.rmtree(directory, ignore_errors=True)
+            # Commit the asset identity before discarding resumable parts. A crash
+            # before the commit must leave the staged bytes available for retry.
             db.commit()
+            shutil.rmtree(directory, ignore_errors=True)
             return handler.reply(201, {"id": aid, "completed": True})
         raise APIError(405, "Method not allowed")
