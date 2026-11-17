@@ -1,0 +1,7 @@
+region                     = "ap-south-1"
+bucket_name                = "replace-with-your-globally-unique-bucket-name"
+image_tag                  = "REPLACE_WITH_COMMIT_SHA"
+certificate_arn            = "arn:aws:acm:ap-south-1:123456789012:certificate/REPLACE"
+allowed_cidr               = "203.0.113.10/32"
+worker_token_parameter_arn = "arn:aws:ssm:ap-south-1:123456789012:parameter/branchframe/worker-token"
+worker_count               = 1

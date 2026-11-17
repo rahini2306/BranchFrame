@@ -1,0 +1,29 @@
+name: Test and render
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - run: python -m unittest discover -v
+      - run: node --check web/app.js
+      - run: docker build -t branchframe:test .
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9.8'
+      - run: terraform -chdir=infra fmt -check
+      - run: terraform -chdir=infra init -backend=false
+      - run: terraform -chdir=infra validate

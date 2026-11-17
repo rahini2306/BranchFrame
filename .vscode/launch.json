@@ -1,0 +1,1 @@
+{"version":"0.2.0","configurations":[{"name":"BranchFrame: local studio","type":"debugpy","request":"launch","module":"branchframe.server","args":["--port","8000"],"console":"integratedTerminal"},{"name":"BranchFrame: tests","type":"debugpy","request":"launch","module":"unittest","args":["discover","-v"],"console":"integratedTerminal"}]}

@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+data/
+worker-data/
+.env
+.env.*
+!.env.example
+.DS_Store
+.terraform/
+*.tfstate*
+*.tfvars
+!*.tfvars.example
+*.tfplan
+*.zip
