@@ -30,7 +30,18 @@ def handle(handler, project, user, tail):
             or not 0 < size <= MAX_UPLOAD
         ):
             raise APIError(400, "Upload size must be 1 byte to 250 MB")
-        if Path(name).suffix.lower() not in (".mp4", ".mov", ".webm", ".m4v"):
+        if Path(name).suffix.lower() not in (
+            ".mp4",
+            ".mov",
+            ".webm",
+            ".m4v",
+            ".mp3",
+            ".wav",
+            ".m4a",
+            ".ogg",
+            ".aac",
+            ".flac",
+        ):
             raise APIError(400, "Unsupported video format")
         if not re.fullmatch("[a-f0-9]{64}", fingerprint):
             raise APIError(400, "Invalid fingerprint")

@@ -4,13 +4,13 @@
 
 Branch a timeline, commit an edit, compare revisions, resolve conflicting changes, and render the approved direction without overwriting the original footage.
 
-Built as a cloud/backend engineering portfolio project. The application runs locally with Python and FFmpeg; AWS infrastructure provisions private S3 media storage, an HTTPS API host, and independent ECS Fargate render workers.
+Built as a cloud/backend engineering portfolio project. The application runs locally with Python and FFmpeg; AWS configuration describes CloudFront HTTPS, a private load balancer, S3 media storage, an EC2 coordinator, SES mail, and independent ECS Fargate workers. **AWS deployment is deferred; this release runs locally.**
 
 ## Design and workspace
 
 The interface follows a pink-and-green pixel-art direction with self-hosted **VT323** display lettering and **Space Grotesk** UI text. Fonts include their OFL licenses. Desktop and mobile layouts share the same visual language.
 
-- [Editable Figma file — six screens](https://www.figma.com/design/OTbmffP6Old0d3wdNRsOqv/BranchFrame-Pixel-Playground?node-id=3-15)
+- [Editable Figma file — ten screens](https://www.figma.com/design/OTbmffP6Old0d3wdNRsOqv/BranchFrame-Pixel-Playground?node-id=3-15)
 - Open `BranchFrame.code-workspace` in VS Code to load the complete project.
 - `/` is the public landing page; `/studio` is the application.
 - [Design source, tokens, and previews](design/README.md)
@@ -22,10 +22,12 @@ The interface follows a pink-and-green pixel-art direction with self-hosted **VT
 
 - Create private projects and invite registered teammates as editors or reviewers.
 - Upload MP4, MOV, M4V, and WebM footage in resumable, SHA-256-verified 5 MiB parts (250 MiB per file).
-- Add clips to a timeline, reorder them, trim in/out points, mute source audio, and add captions.
+- Preview edited clips with trims, captions, crossfades, three overlay tracks, and up to eight music/voiceover clips.
+- Share a revisioned draft live with presence, automatic merging of independent edits, and explicit conflict recovery.
 - Save immutable commits, create branches from any revision, and inspect field-level differences.
 - Merge branches using a common ancestor. Resolve conflicting captions, trims, deletions, and ordering explicitly.
-- Attach timestamped comments, approvals, and change requests to an exact commit.
+- Attach timestamped comments, independent approvals, and change requests to an exact commit. Projects require approval before export by default; owners can configure this policy.
+- Verify email and reset passwords through configurable SMTP/SES delivery, using expiring single-use tokens and session revocation.
 - Export normalized 720p MP4 videos. Render clip segments concurrently, cache unchanged segments, then assemble the final video.
 - Recover abandoned work through leases, heartbeats, bounded retries, and rejection of stale worker results.
 
@@ -64,7 +66,7 @@ This installs FFmpeg and caption fonts inside the image and stores project data 
 4. Switch to `main`, change that same caption differently, and commit.
 5. Open **Compare & merge**, select `social-cut`, and compare. Choose which caption to keep, then merge.
 6. Inspect **Version history**: the merge commit has two parents. Add a timestamped review.
-7. Export the commit. Watch segment and assembly jobs in **Exports**, then play/download the MP4.
+7. Add a registered reviewer in **Team** and have them approve the exact commit. For a solo demonstration, the owner can explicitly disable the gate in **Team**. Export the commit. Watch segment and assembly jobs in **Exports**, then play/download the MP4.
 8. Export the same commit again: the cached segment count increases.
 
 For failure recovery, stop a remote worker during a job. A remaining worker can reclaim its work after the 120-second lease expires. Jobs get at most three processing attempts.
@@ -100,14 +102,14 @@ A functional responsive interface is included. [UI/Figma brief](docs/UI_DESIGN.m
 
 ## Scope and limitations
 
-- The editor previews original footage. Trims, captions, and mute are applied in exports; it is not a frame-accurate browser compositing engine.
-- One sequential video track with each clip's own audio. No transitions, separate music track, arbitrary effects, or simultaneous live co-editing.
-- Reviews are advisory; an approval does not lock a branch or block exports.
-- Branch updates use optimistic concurrency: stale edits are rejected instead of silently overwriting another teammate's commit.
-- Workers scale independently, but the coordinator and metadata disk are a single point of failure. AWS worker count is configured explicitly; autoscaling is not implemented.
-- Uploads pass through the API and stage on its disk before S3 storage; this is not browser-to-S3 presigned upload.
-- Local object and render caches do not yet evict themselves. Monitor disk usage; stale unfinished uploads are cleaned when another upload starts after 24 hours.
-- This is a portfolio implementation, not a hardened public SaaS: no email verification, password reset, billing, MFA, or abuse prevention. Keep AWS demo access restricted to your IP.
+- The canvas preview follows the edit manifest but is approximate: browser decoding, audio buffering, and font rendering can differ from the FFmpeg export. Use the export as the final result.
+- Main video is sequential, with three overlay tracks and up to eight audio clips. Supported transitions are cuts and crossfades; arbitrary effects and frame-accurate scrubbing are outside this release.
+- Shared drafts use server revisions and three-way merging, not a CRDT. Conflicting edits require a choice; expired history requires reload or preservation on another branch. Presence and updates normally arrive about every two seconds.
+- Approval is checked when an export is requested. Revoking an approval does not erase an already produced file. Owners can turn the policy off.
+- Workers scale independently, but the coordinator and metadata disk are a single point of failure. Worker count is explicit; autoscaling and automatic metadata failover are not implemented.
+- Uploads stage on API disk before S3. Local object/render caches have no automatic eviction; monitor storage. Stale unfinished uploads are cleaned when another upload starts after 24 hours.
+- SMTP/SES integration is implemented and account-token behavior is tested with an in-memory mailbox. Real delivery, SES production access, AWS IAM, cloud performance, and disaster recovery remain unverified.
+- Rate limits are in-memory and reset with the API process. No MFA, billing, comprehensive anti-abuse system, or production service guarantee is claimed.
 
 ## Project layout
 
@@ -115,6 +117,11 @@ A functional responsive interface is included. [UI/Figma brief](docs/UI_DESIGN.m
 |---|---|
 | `branchframe/domain.py` | Validation, deterministic merge, ancestry and diff |
 | `branchframe/server.py` | API, sessions, ACLs, commits, durable queue |
+| `branchframe/accounts.py` | Verification, password recovery, SMTP/SES delivery, rate limits |
+| `branchframe/collaboration.py` | Shared drafts, presence, SSE, independent approval checks |
+| `branchframe/editing.py` | Multitrack validation, timing, soundtrack merge |
+| `branchframe/rendering.py` | FFmpeg crossfades, overlays, soundtrack assembly |
+| `scripts/cloud_smoke.py` | Post-deployment HTTPS/upload/export/cache verification |
 | `branchframe/uploads.py` | Resumable part upload and completion |
 | `branchframe/store.py` | SQLite transactions and local/S3 objects |
 | `branchframe/worker.py` | FFmpeg pipeline and remote worker loop |

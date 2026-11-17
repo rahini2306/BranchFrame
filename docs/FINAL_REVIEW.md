@@ -1,29 +1,29 @@
-# Final verification
+# Upgrade verification — 18 November 2026
 
-## Verified locally
+## Implemented
 
-- Complete source is saved in the repository; `BranchFrame.code-workspace` opens that folder in VS Code.
-- Desktop landing at 1440 px and mobile landing/workspace/editor at 390 px checked in the browser. Document width matches viewport width; the clip table scrolls inside its own panel.
-- The reference-inspired fonts, pink/green palette, original SVG decorations, and responsive treatment are applied to the landing page and application.
-- Browser flow: open studio → load project → export committed timeline → reuse a cached segment → assemble → finished MP4 download.
-- All 44 Python tests pass. The suite covers merge semantics, permissions, stale commits, job leases/retries, cache reuse, upload integrity/resume, atomic object storage, cleanup ordering, and real FFmpeg encoding/assembly.
-- Frontend JavaScript syntax and Python unused-import checks pass.
-- Terraform formatting passes. GitHub Actions validates the Terraform provider configuration and builds the Docker image.
+- Approximate edited canvas preview, clip trims/captions/mute/volume, incoming crossfades, three overlay tracks, and up to eight separate music/voiceover clips.
+- FFmpeg composition exports with matching timeline scheduling, fade audio, overlays, soundtrack mixing, and a final audio limiter.
+- Revisioned shared drafts, project presence, SSE updates, three-way reconciliation, and local-conflict recovery onto a new branch.
+- Independent review approvals enforced on export requests; owner-configurable policy. New projects enable the gate by default.
+- Email verification and password recovery through SMTP/SES; expiring hashed single-use tokens, reset session revocation, retryable delivery failure, and account rate limits.
+- AWS configuration for generated CloudFront HTTPS, a VPC origin/internal ALB, EC2/EBS metadata, private S3, ECR, ECS Fargate workers, SES sender permissions, health alerts, and account-wide cost alerts.
+- Portable VS Code workspace, updated API/architecture/deployment documentation, and a post-deployment smoke-test script.
 
-## Reliability fixes made during review
+## Checked for this upgrade
 
-1. Object copies/downloads publish through an atomic rename, preserving complete prior objects and avoiding partially cached downloads.
-2. Uploads retain a stable project URL and block project/branch navigation while sending parts; progress is displayed inline.
-3. Completed asset metadata commits before staged upload parts are removed, preserving recoverability if the transaction fails.
-4. Background status updates do not replace a playing video; pending UI updates are applied after playback stops.
-5. Creating a branch from history checks for uncommitted edits before replacing a draft.
+- 63 Python tests pass with FFmpeg installed. Coverage includes existing merge/ACL/upload/job/storage behavior plus account expiry/single-use/reset/revocation, delivery failure, verification enforcement, shared edits/conflicts, SSE payloads, independent approval gates, origin-header checks, and actual crossfade/overlay/music exports.
+- Real rendering checks include both a two-clip crossfade and a cut followed by a crossfade, covering FFmpeg timebase normalization.
+- All browser JavaScript files pass Node syntax checks. Python undefined-name/unused-import checks pass, HTML IDs are unique, and the Git diff has no whitespace errors.
+- Terraform HCL parsing, dependency installation, and formatting pass. Full provider validation cannot run in this environment because provider subprocess/socket startup is restricted. This does not constitute a passing `terraform validate`.
+- Ten editable Figma screens now include the multitrack studio and four account-recovery states. Structure audits confirm native text/frames/instances, the two product fonts, and no flattened whole-UI images. Synthetic sample content is used throughout. Editor and password-reset composition screenshots were visually inspected.
 
-## Design verification
+## Still pending
 
-Six screens exist in the separate Figma file. Audits confirm editable text, vector artwork, component instances, and the two selected font families. Whole-screen raster images are not used as editable design substitutes. Sample projects in the design file contain no live account or uploaded media data.
+- The cloud browser is isolated from the local Python server, so the upgraded browser interaction/media playback has not received an end-to-end browser check here. The prior release's browser checks do not validate these new controls.
+- AWS deployment is deferred at the project owner's request. No AWS resources were created and no live AWS website URL exists. Real SES delivery, cloud throughput, failover, backup restore, and charges have not been tested.
+- The Docker image and upgraded Terraform configuration still need their CI checks on an unrestricted runner after publication.
+- The upgraded source has now been synchronized into the existing Mac VS Code project folder. Local account data, media, and the virtual environment are retained.
+- The earlier cloud-workspace push lacked authentication. Publication is now performed from the existing Mac checkout, with the remote commit checked after pushing.
 
-## Remaining validation and scope
-
-The cloud architecture has not been applied to an AWS account. Real IAM/service behavior, cloud costs, recovery from EBS backups, and multi-host throughput must be tested before claiming a production deployment or measured scalability. The README documents the single coordinator, advisory reviews, source-only preview, and missing public-SaaS account hardening.
-
-Use these concrete checks and scope limits when presenting the project. Cloud performance and production readiness require additional live validation.
+Do not describe this as a tested AWS deployment or a production-ready public SaaS. The exact remaining engineering limits are in the README and AWS guide.

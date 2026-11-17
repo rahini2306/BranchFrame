@@ -90,7 +90,8 @@ function media(id) {
 function markDirty() {
   state.dirty = true;
   $('dirty-status').textContent = 'Uncommitted changes — save a commit to keep this version.';
-  $('dirty-status').style.color = '#963f35'
+  $('dirty-status').style.color = '#963f35';
+  window.BranchFrameUpgrade?.change();
 }
 
 function confirmDiscard() {
@@ -118,6 +119,7 @@ function ask(title, description, label = 'Name', initial = '') {
 }
 
 function showAuth() {
+  window.BranchFrameUpgrade?.close();
   $('auth').classList.remove('hidden');
   $('shell').classList.add('hidden');
   state.user = null
@@ -130,6 +132,7 @@ async function boot() {
     $('user-name').textContent = state.user.name;
     $('avatar').textContent = state.user.name[0].toUpperCase();
     await loadProjects();
+    window.BranchFrameUpgrade?.account();
     const health = await api('/api/health');
     $('renderer-status').textContent = health.renderer ? '● Local renderer ready' : '○ External renderer required';
     $('renderer-status').title = 'Remote workers may also process exports';
@@ -152,7 +155,8 @@ async function openProject(id) {
   $('dashboard').classList.add('hidden');
   $('studio').classList.remove('hidden');
   renderProject();
-  selectTab('editor')
+  selectTab('editor');
+  await window.BranchFrameUpgrade?.open();
 }
 async function refresh(keepDraft = false) {
   const draft = state.draft;
@@ -161,7 +165,8 @@ async function refresh(keepDraft = false) {
     state.draft = structuredClone(commit().timeline);
     state.dirty = false
   } else state.draft = draft;
-  renderProject()
+  renderProject();
+  if (!keepDraft) await window.BranchFrameUpgrade?.open();
 }
 
 function selectTab(tab) {
@@ -186,7 +191,8 @@ function renderProject() {
   renderMergeSelectors();
   renderReviews();
   renderExports();
-  renderTeam()
+  renderTeam();
+  window.BranchFrameUpgrade?.advanced();
 }
 
 function renderAssets() {
@@ -198,12 +204,14 @@ function renderAssets() {
 function preview(aid, start = 0) {
   $('preview').src = media(aid);
   $('preview').onloadedmetadata = () => {
-    $('preview').currentTime = start
+    $('preview').currentTime = start;
+    $('preview').closest('details').open = true;
   };
   $('preview-empty').classList.add('hidden');
   $('preview-label').textContent = asset(aid)?.name || 'Source video'
 }
 async function addClip(aid) {
+  if (/\.(mp3|wav|m4a|ogg|aac|flac)$/i.test(asset(aid)?.name || '')) return window.BranchFrameUpgrade.addAudio(aid);
   const duration = await new Promise(resolve => {
     const video = document.createElement('video');
     video.preload = 'metadata';
@@ -254,6 +262,7 @@ function renderTimeline() {
     markDirty();
     renderTimeline()
   })
+  window.BranchFrameUpgrade?.advanced();
 }
 
 function renderHistory() {
@@ -384,12 +393,14 @@ $('auth-form').onsubmit = safe(async event => {
 $('logout').onclick = safe(async () => {
   if (!confirmDiscard()) return;
   await api('/api/logout', {});
+  window.BranchFrameUpgrade?.close();
   state.project = null;
   state.dirty = false;
   showAuth()
 });
 $('home-button').onclick = safe(async () => {
   if (!confirmDiscard()) return;
+  window.BranchFrameUpgrade?.close();
   state.project = null;
   state.dirty = false;
   $('dashboard').classList.remove('hidden');
@@ -406,7 +417,7 @@ $('new-project').onclick = safe(async () => {
   await loadProjects();
   await openProject(result.id)
 });
-$('branch-select').onchange = () => {
+$('branch-select').onchange = async () => {
   const branch = $('branch-select').value;
   if (!confirmDiscard()) {
     $('branch-select').value = state.branch;
@@ -415,12 +426,14 @@ $('branch-select').onchange = () => {
   state.branch = branch;
   state.draft = structuredClone(commit().timeline);
   state.dirty = false;
-  renderProject()
+  renderProject();
+  await window.BranchFrameUpgrade?.open();
 };
 $('new-branch').onclick = safe(() => createBranch());
 $('commit-button').onclick = safe(async () => {
   const message = await ask('Keep this version.', 'Your commit saves the current timeline on ' + state.branch + '.', 'Commit message');
   if (!message) return;
+  await window.BranchFrameUpgrade?.flush();
   await projectAPI('commits', {
     branch: state.branch,
     expected_head: head(),

@@ -1,26 +1,28 @@
 # Deploying the cloud demo
 
-The included Terraform describes a restricted demonstration deployment. Its Terraform configuration is validated by GitHub Actions; local execution also checks formatting. No AWS resources were created during local development. Account-specific IAM, DNS, service quotas, networking, and operational behavior still require a real deployment test.
+The included Terraform describes a demonstration deployment. The upgrade passes HCL parsing and formatting; provider validation, container build, and a live plan/apply still require a supported runner. No AWS resources were created during local development. Account-specific IAM, DNS, service quotas, networking, and operational behavior still require a real deployment test.
 
 ## Resources
 
 - Private, encrypted, versioned S3 media bucket with public access blocked and TLS required.
 - Immutable-tag ECR repository.
 - One EC2 `t3.small` API/coordinator host with encrypted 30 GiB EBS-backed metadata storage.
-- HTTPS Application Load Balancer with an existing ACM certificate; HTTP redirects to HTTPS.
+- CloudFront generated HTTPS hostname with a VPC origin targeting an internal Application Load Balancer. Application responses are not cached.
+- Existing verified SES identity for verification/recovery email; API IAM permissions are restricted to the sender.
+- Account-wide monthly AWS Budget email alert plus unhealthy-target CloudWatch/SNS alerts.
 - ECS Fargate rendering service with configurable worker count, task IAM roles, and private API connectivity.
 - CloudWatch logs with seven-day retention.
 
-The default VPC must exist and have public subnets in at least two availability zones. Workers have public IPs for outbound ECR/S3 access, but their security group has no inbound rules. The API accepts application traffic only from the load balancer and workers; no SSH port is opened. SSM is used for host administration.
+The default VPC must exist and have public subnets in at least two availability zones. Workers have public IPs for outbound ECR/S3 access, but their security group has no inbound rules. The internal load balancer accepts CloudFront origin traffic and requires a private origin header. The API accepts application traffic only from the load balancer and workers; no SSH port is opened. SSM is used for host administration.
 
-This is a paid, continuously running architecture. EC2, Fargate, ALB, public IPv4, EBS, S3 storage/version history, requests, and data transfer can incur charges. Use a short demo window, one worker, short clips, an AWS Budget alert, and the official AWS Pricing Calculator for your chosen region. It is not guaranteed free-tier eligible.
+This is a paid, continuously running architecture. EC2, Fargate, ALB, public IPv4, EBS, S3 storage/version history, requests, and data transfer can incur charges. Use a short demo window, one worker, short clips, an explicitly chosen AWS Budget alert threshold, and the official AWS Pricing Calculator for your chosen region. It is not guaranteed free-tier eligible.
 
 ## Prerequisites
 
 1. AWS account access through the AWS CLI (prefer an SSO session), Docker, and Terraform 1.9+.
-2. A domain you control and a validated ACM certificate in the deployment region.
+2. An existing verified SES email/domain identity in the deployment region, plus a sender address covered by it. SES sandbox accounts can send only to verified recipients; request production access before inviting arbitrary users. No domain purchase is required for the generated website URL.
 3. An existing SSM SecureString parameter `/branchframe/worker-token` containing a long random secret. Create it through the AWS console or your secret-management process with the default AWS SSM KMS key. Do not put its value in source, Terraform variables, user data, or GitHub variables.
-4. Copy `terraform.tfvars.example` to `terraform.tfvars` and replace every placeholder. `allowed_cidr` should be your public IP with `/32` for a restricted demo. The input expects IPv4.
+4. Copy `terraform.tfvars.example` to `terraform.tfvars` and replace every placeholder. Provide `mail_from`, `ses_identity_arn`, `alert_email`, and an explicit `budget_usd`. The sample amount is illustrative, not a cost estimate or authorization.
 
 ```sh
 cd infra
@@ -50,7 +52,9 @@ docker buildx build --platform linux/amd64 -t ACCOUNT_ID.dkr.ecr.ap-south-1.amaz
 
 Now run `terraform plan` and review the concrete resources and costs before `terraform apply`. `-target` is only for this bootstrap dependency, not normal ongoing infrastructure management.
 
-Point your certificate's domain to the load balancer DNS output. Use that domain over HTTPS rather than visiting the load balancer hostname with a mismatched certificate.
+After apply, `terraform output -raw website_url` returns the generated HTTPS address. The load balancer is internal and is not the visitor URL. CloudFront deployment can take time; wait for the distribution and target health before testing. The origin header is sensitive and is present in Terraform state and EC2 user data; keep both access-controlled. Origin and worker traffic inside the VPC use HTTP.
+
+The cost budget is account-wide so it works without activated project cost tags. It sends an alert at 80% of the selected monthly threshold; it does not cap spending or stop services. Confirm the SNS subscription email to receive operational alerts. Keep the demo URL within a small trusted group until capacity and abuse controls are measured.
 
 ## GitHub Actions image publishing
 
@@ -79,7 +83,18 @@ The API root volume has `delete_on_termination=false`. Instance replacement or T
 
 ## Verify a deployment
 
+Create an account on the HTTPS site and verify the delivered email. With that existing verified account and local FFmpeg installed, run:
+
+```sh
+python3 scripts/cloud_smoke.py --url https://YOUR_DISTRIBUTION.cloudfront.net --email YOUR_ACCOUNT_EMAIL
+```
+
+Enter the password at the hidden prompt. This creates and retains a small test project with its review gate explicitly disabled, runs cold/warm exports, verifies a cache hit, rejects anonymous access, and writes measured evidence to `cloud-smoke-results.json`. It does not test approval gates, SES deliverability beyond your own verified email, worker termination recovery, backup restore, or multi-worker scaling; perform the remaining checks below. Never commit credentials or raw account evidence into the public repository.
+
+
 - HTTPS login works and the cookie has `Secure` and `HttpOnly` flags.
+- Verification and password-reset emails actually arrive; used/expired links fail and reset signs out existing sessions.
+- Two independent accounts see draft updates and recover conflicts; approvals unblock exports and new commits require fresh review.
 - An uninvited account cannot load another project's API or media.
 - Upload, commit, branch, merge, export, and playback all succeed.
 - With two workers and several clips, different tasks can execute simultaneously.
@@ -90,6 +105,12 @@ The API root volume has `delete_on_termination=false`. Instance replacement or T
 
 ## Cleanup
 
-Take backups first, then review `terraform destroy`. It removes the compute/load-balancer resources but intentionally cannot delete a nonempty media bucket or an ECR repository with images by default. Review and delete unwanted objects, object versions, delete markers, and images through normal AWS controls only when they are no longer needed. The retained EBS root volume, SSM secret, DNS records, certificate, and backups need separate review; retained storage can continue to incur charges.
+Take backups first, then review `terraform destroy`. It removes the compute/load-balancer resources but intentionally cannot delete a nonempty media bucket or an ECR repository with images by default. Review and delete unwanted objects, object versions, delete markers, and images through normal AWS controls only when they are no longer needed. The retained EBS root volume, SSM secret, SES identity, and backups need separate review; retained storage can continue to incur charges.
 
 Do not use blanket bucket deletion or `force_destroy=true` as a shortcut for a repository containing real footage.
+
+## Current evidence
+
+No AWS account is authenticated in the current workspace, no resources have been created, and no cloud results have been recorded. Terraform 1.9.8 was downloaded from HashiCorp and checksum-verified; provider installation and formatting succeeded. Provider execution is blocked by this workspace's process/socket restrictions, so `terraform validate` has not passed for this upgraded configuration here. CI is configured to perform provider validation and the container build once the branch is published. Treat account-specific IAM, VPC-origin setup, SES access, networking, and cost as unverified until then.
+
+References: [CloudFront VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html), [SES sandbox and sending](https://docs.aws.amazon.com/ses/latest/dg/getting-started-sending.html).

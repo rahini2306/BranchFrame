@@ -1772,3 +1772,181 @@ footer {
 .page-heading {
   isolation: isolate
 }
+
+/* Editing and collaboration tools */
+#composite {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16/9;
+  background: #151515;
+  border: 1px solid var(--ink)
+}
+
+.preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px
+}
+
+.preview-controls input {
+  flex: 1;
+  min-width: 100px
+}
+
+.preview-controls span {
+  font-size: 10px
+}
+
+.preview-controls button {
+  font-size: 11px
+}
+
+.preview details {
+  margin-top: 15px
+}
+
+.preview summary {
+  cursor: pointer;
+  font-size: 11px;
+  margin-bottom: 10px
+}
+
+.preview #preview {
+  height: auto;
+  max-height: 250px
+}
+
+.preview #preview-note {
+  margin: 12px 0 0
+}
+
+.collaboration-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  margin: 0 0 20px;
+  color: var(--green)
+}
+
+.warning {
+  color: var(--red)
+}
+
+.notice {
+  padding: 15px;
+  background: #fff2c9;
+  border: 1px solid #d8b75d;
+  font-size: 12px;
+  margin: 20px 0
+}
+
+.notice button {
+  margin: 5px;
+  font-size: 11px
+}
+
+.clip-options {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+  flex-wrap: wrap;
+  min-width: 680px;
+  padding: 4px 0 16px 48px;
+  border-bottom: 1px dashed var(--line)
+}
+
+.clip-options label {
+  font-size: 9px;
+  gap: 5px
+}
+
+.clip-options input {
+  width: 75px;
+  padding: 7px
+}
+
+.clip-options select {
+  font-size: 11px;
+  padding: 7px
+}
+
+.music-clip {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+  flex-wrap: wrap;
+  min-width: 680px;
+  padding: 16px 0
+}
+
+.music-clip strong {
+  font-size: 11px;
+  max-width: 130px;
+  overflow-wrap: anywhere
+}
+
+.music-clip label {
+  font-size: 9px;
+  gap: 5px
+}
+
+.music-clip input {
+  width: 85px;
+  padding: 7px
+}
+
+.timeline>h3 {
+  margin-top: 25px
+}
+
+.policy-form {
+  border: 1px solid var(--line);
+  padding: 20px;
+  margin: 25px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  flex-wrap: wrap
+}
+
+.policy-form label {
+  flex-direction: row;
+  align-items: center
+}
+
+.account-page>main {
+  margin: 10vh auto;
+  padding: 35px;
+  width: min(500px, 92vw);
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  box-shadow: 7px 7px 0 var(--pink)
+}
+
+.account-card h1 {
+  font-size: 55px;
+  margin-top: 30px
+}
+
+.account-card form {
+  display: grid;
+  gap: 20px
+}
+
+.account-card label {
+  margin-bottom: 5px
+}
+
+.account-card [hidden] {
+  display: none !important
+}
+
+.editor-layout .preview {
+  min-width: 0
+}

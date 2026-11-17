@@ -3,7 +3,11 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 5.98"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.7"
     }
   }
 }
@@ -25,17 +29,29 @@ variable "image_tag" {
   type        = string
   description = "Immutable ECR image tag, normally the source commit SHA"
 }
-variable "certificate_arn" {
+variable "mail_from" {
   type        = string
-  description = "Validated ACM certificate in this region for your demo domain"
-}
-variable "allowed_cidr" {
-  type        = string
-  description = "Your public IPv4 /32 for a restricted demo"
+  description = "Sender email covered by an already verified SES identity in this region"
   validation {
-    condition     = can(cidrnetmask(var.allowed_cidr))
-    error_message = "Provide an IPv4 CIDR."
+    condition     = can(regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$", var.mail_from))
+    error_message = "Supply a plain sender email address."
   }
+}
+variable "ses_identity_arn" {
+  type        = string
+  description = "ARN of the existing verified SES email or domain identity"
+}
+variable "budget_usd" {
+  type        = number
+  description = "Monthly project budget alert threshold in USD; an alert does not stop charges"
+  validation {
+    condition     = var.budget_usd > 0
+    error_message = "Choose an explicit positive monthly budget."
+  }
+}
+variable "alert_email" {
+  type        = string
+  description = "Your email for AWS cost and operational alerts"
 }
 variable "worker_token_parameter_arn" {
   type        = string
@@ -116,16 +132,10 @@ resource "aws_security_group" "alb" {
   name_prefix = "bf-alb-"
   vpc_id      = data.aws_vpc.default.id
   ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [var.allowed_cidr]
-  }
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = [var.allowed_cidr]
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront.id]
   }
   egress {
     from_port   = 0
@@ -184,6 +194,7 @@ resource "aws_iam_role_policy" "api" {
       { Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
       { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = aws_ecr_repository.app.arn },
       { Effect = "Allow", Action = "ssm:GetParameter", Resource = var.worker_token_parameter_arn },
+      { Effect = "Allow", Action = ["ses:SendEmail", "ses:SendRawEmail"], Resource = var.ses_identity_arn, Condition = { StringEquals = { "ses:FromAddress" = var.mail_from } } },
       { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "${aws_cloudwatch_log_group.app.arn}:*" }
     ]
   })
@@ -198,11 +209,14 @@ resource "aws_instance" "api" {
   # Update the image through SSM; replacing the host requires metadata restoration.
   user_data_replace_on_change = false
   user_data = templatefile("${path.module}/bootstrap.sh.tftpl", {
-    region    = var.region, bucket = aws_s3_bucket.media.id
-    image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
-    registry  = split("/", aws_ecr_repository.app.repository_url)[0]
-    token_arn = var.worker_token_parameter_arn
-    log_group = aws_cloudwatch_log_group.app.name
+    region        = var.region, bucket = aws_s3_bucket.media.id
+    image         = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
+    registry      = split("/", aws_ecr_repository.app.repository_url)[0]
+    token_arn     = var.worker_token_parameter_arn
+    log_group     = aws_cloudwatch_log_group.app.name
+    public_url    = "https://${aws_cloudfront_distribution.app.domain_name}"
+    origin_secret = random_password.origin.result
+    mail_from     = var.mail_from
   })
   root_block_device {
     volume_size           = 30
@@ -220,6 +234,7 @@ resource "aws_instance" "api" {
 resource "aws_lb" "app" {
   name_prefix        = "bf-"
   load_balancer_type = "application"
+  internal           = true
   security_groups    = [aws_security_group.alb.id]
   subnets            = data.aws_subnets.default.ids
   idle_timeout       = 120
@@ -238,27 +253,30 @@ resource "aws_lb_target_group_attachment" "api" {
   target_id        = aws_instance.api.id
   port             = 8000
 }
-resource "aws_lb_listener" "https" {
-  load_balancer_arn = aws_lb.app.arn
-  port              = 443
-  protocol          = "HTTPS"
-  certificate_arn   = var.certificate_arn
-  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.api.arn
-  }
-}
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.app.arn
   port              = 80
   protocol          = "HTTP"
   default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Use the BranchFrame HTTPS address."
+      status_code  = "403"
+    }
+  }
+}
+resource "aws_lb_listener_rule" "cloudfront" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 1
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+  condition {
+    http_header {
+      http_header_name = "X-BranchFrame-Origin"
+      values           = [random_password.origin.result]
     }
   }
 }

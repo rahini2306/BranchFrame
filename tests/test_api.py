@@ -84,7 +84,7 @@ class APIFixture(unittest.TestCase):
             },
         )
         self.user = self.client.ok("/api/me")["id"]
-        self.project = self.client.ok("/api/projects", {"name": "Film"})["id"]
+        self.project = self.client.ok("/api/projects", {"name": "Film", "require_approval":False})["id"]
         self.url = "/api/projects/" + self.project
 
     def tearDown(self):

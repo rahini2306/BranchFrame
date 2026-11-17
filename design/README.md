@@ -2,7 +2,7 @@
 
 [Figma — BranchFrame Pixel Playground](https://www.figma.com/design/OTbmffP6Old0d3wdNRsOqv/BranchFrame-Pixel-Playground?node-id=3-15)
 
-Six editable screens: desktop landing, mobile landing, workspace dashboard, timeline editor, sign in, and compare/merge. The file contains reusable button, project-card, and toolkit-card components, plus bound color variables and a token reference board.
+Ten editable screens: desktop landing, mobile landing, workspace dashboard, upgraded multitrack timeline editor, sign in, compare/merge, reset request, new password, email verified, and invalid link. The file contains reusable button, project-card, and toolkit-card components, plus bound color variables and a token reference board.
 
 The source follows the user-provided reference's pink surround, pale page, terminal-style pixel headlines, green flower doodles, clouds, and skateboard mascot. The reference was too low-resolution to verify an exact font; **VT323** is the selected close match. **Space Grotesk** supplies readable UI text. Both are self-hosted with OFL license files in `web/fonts/`.
 

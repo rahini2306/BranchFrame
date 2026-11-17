@@ -28,6 +28,6 @@ Design a desktop-first collaborative video workspace, then adapt it for tablet a
 
 Search for collaborative video editor dashboards, Git branch history interfaces, version comparison panels, media asset libraries, and job processing dashboards. Focus on the application workspace rather than only a cloud-company landing page.
 
-Keep original-source preview distinct from rendered export playback. Do not imply the browser player applies edits in real time. Reviews reference commits; they are not a live chat. Branch merges need explicit conflict choices, not an unexplained success button.
+Keep the approximate edited canvas preview, original source player, and final rendered export distinguishable. Shared drafts show revision, presence, and recoverable conflicts. Reviews reference exact commits and enforce the configured export gate. Branch merges need explicit conflict choices, not an unexplained success button.
 
 Deliver a Figma link plus chosen fonts/colors, reusable controls, screen states, and desktop/mobile frames. The CSS uses variables at the top for easy restyling. No design is required before running or testing the backend.

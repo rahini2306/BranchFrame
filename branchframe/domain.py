@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import re
+from .editing import VIDEO_OPTIONS, validate_extras, merge_audio
 
 
 def canonical(value):
@@ -16,14 +17,18 @@ def digest(value):
 
 
 def validate_timeline(value):
-    if not isinstance(value, dict) or set(value) != {"clips"}:
+    if (
+        not isinstance(value, dict)
+        or not {"clips"} <= set(value)
+        or bool(set(value) - {"clips", "audio"})
+    ):
         raise ValueError("Timeline must contain a clips array")
     clips = value["clips"]
     if not isinstance(clips, list) or len(clips) > 100:
         raise ValueError("Use at most 100 clips")
     seen = set()
     for clip in clips:
-        if not isinstance(clip, dict) or set(clip) != {
+        if not isinstance(clip, dict) or set(clip) - VIDEO_OPTIONS != {
             "id",
             "asset",
             "start",
@@ -64,6 +69,7 @@ def validate_timeline(value):
             raise ValueError("muted must be boolean")
     if sum(c["end"] - c["start"] for c in clips) > 3600:
         raise ValueError("Export duration is limited to one hour")
+    validate_extras(value)
     return copy.deepcopy(value)
 
 
@@ -106,8 +112,15 @@ def merge(base, ours, theirs, resolutions=None):
             v = choose("clips/" + cid, b, o, t)
         else:
             v = {"id": cid}
-            for key in ("asset", "start", "end", "caption", "muted"):
-                v[key] = choose("clips/" + cid + "/" + key, b[key], o[key], t[key])
+            for key in sorted((set(b) | set(o) | set(t)) - {"id"}):
+                chosen = choose(
+                    "clips/" + cid + "/" + key,
+                    b.get(key, missing),
+                    o.get(key, missing),
+                    t.get(key, missing),
+                )
+                if chosen is not missing:
+                    v[key] = chosen
         if v is not missing:
             try:
                 validate_timeline({"clips": [v]})
@@ -136,6 +149,15 @@ def merge(base, ours, theirs, resolutions=None):
             else:
                 order.append(cid)
     result = {"clips": [out[cid] for cid in order]}
+    audio, audio_conflicts = merge_audio(
+        base.get("audio", []),
+        ours.get("audio", []),
+        theirs.get("audio", []),
+        resolutions,
+    )
+    if audio or any("audio" in v for v in (base, ours, theirs)):
+        result["audio"] = audio
+    conflicts.extend(audio_conflicts)
     if not conflicts:
         validate_timeline(result)
     return {"timeline": result, "conflicts": conflicts}
@@ -176,18 +198,27 @@ def diff(before, after):
         elif cid not in a:
             rows.append({"clip": cid, "kind": "removed", "before": b[cid]})
         else:
-            for key in a[cid]:
-                if a[cid][key] != b[cid][key]:
+            for key in sorted(set(a[cid]) | set(b[cid])):
+                if a[cid].get(key) != b[cid].get(key):
                     rows.append(
                         {
                             "clip": cid,
                             "kind": key,
-                            "before": b[cid][key],
-                            "after": a[cid][key],
+                            "before": b[cid].get(key),
+                            "after": a[cid].get(key),
                         }
                     )
     if [c["id"] for c in before["clips"]] != [c["id"] for c in after["clips"]]:
         rows.append(
             {"clip": "timeline", "kind": "order", "before": list(b), "after": list(a)}
+        )
+    if before.get("audio", []) != after.get("audio", []):
+        rows.append(
+            {
+                "clip": "soundtrack",
+                "kind": "audio",
+                "before": before.get("audio", []),
+                "after": after.get("audio", []),
+            }
         )
     return rows

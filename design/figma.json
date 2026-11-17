@@ -11,7 +11,31 @@
     "workspace": "3:263",
     "editor": "3:327",
     "signIn": "3:381",
-    "compareMerge": "5:58"
+    "compareMerge": "5:58",
+    "requestReset": "17:63",
+    "setPassword": "17:74",
+    "emailVerified": "17:88",
+    "linkUnavailable": "17:97"
   },
-  "content": "Editable design layers with synthetic sample project content. No live account data or uploaded footage was captured."
+  "content": "Editable design layers with synthetic sample project content. No live account data or uploaded footage was captured.",
+  "upgradeSession": "bb6dcd33-e9a4-4cc0-8a03-a3471c02b321",
+  "upgradeVerification": {
+    "editor": {
+      "frameCount": 24,
+      "textCount": 51,
+      "instanceCount": 5,
+      "imageFilledNodes": 0
+    },
+    "fonts": [
+      "VT323",
+      "Space Grotesk"
+    ],
+    "accountFrames": [
+      "17:63",
+      "17:74",
+      "17:88",
+      "17:97"
+    ],
+    "date": "2026-11-18"
+  }
 }

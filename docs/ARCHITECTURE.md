@@ -19,7 +19,7 @@ Sessions use random tokens stored as SHA-256 hashes and HttpOnly SameSite cookie
 7. Detect invalid combinations such as a new start time greater than the other branch's new end time; require a whole-clip resolution.
 8. Validate the final manifest, verify expected branch heads, insert a two-parent commit, and move the target head in one transaction.
 
-The caller supplies expected heads for both branches. A changed branch invalidates a stale merge preview. Independent clip insertion uses a deterministic policy, not a universal conflict-free ordering algorithm. There is no CRDT or simultaneous live editing.
+The caller supplies expected heads for both branches. A changed branch invalidates a stale merge preview. Independent clip insertion uses a deterministic policy, not a universal conflict-free ordering algorithm. Shared drafts additionally use a revision number and retained manifests to run this merge against simultaneous edits. Conflicts return HTTP 409; the browser preserves local work and offers a recovery branch. This is not a CRDT.
 
 ## Durable job orchestration
 
@@ -33,9 +33,9 @@ Step Functions is not required by this implementation: the application coordinat
 
 ## Render cache
 
-A segment cache key hashes the project ID, source content hash, trim range, caption, mute state, and renderer version. Clip IDs and branch names are excluded, allowing reuse across revisions within the same project. Project ID inclusion prevents cross-project cache reuse. Any encoding-setting change requires incrementing the renderer version.
+A segment cache key hashes the project ID, source content hash, trim range, caption, mute state, volume, other clip options, and renderer version. Clip IDs and branch names are excluded, allowing reuse across revisions within the same project. Project ID inclusion prevents cross-project cache reuse. Any encoding-setting change requires incrementing the renderer version.
 
-All segments normalize to 1280×720, 30 fps, H.264/yuv420p, stereo AAC at 48 kHz, and a common video timebase. Missing or muted audio becomes silence. Captions are passed through a text file with expression expansion disabled. FFmpeg is invoked as an argument array, never a shell command. Final assembly stream-copies normalized segments.
+All segments normalize to 1280×720, 30 fps, H.264/yuv420p, stereo AAC at 48 kHz, and a common video timebase. Missing or muted audio becomes silence. Captions are passed through a text file with expression expansion disabled. FFmpeg is invoked as an argument array, never a shell command. The current assembly job re-encodes the composition, using FFmpeg xfade/acrossfade, overlay, audio delay/mix, and a limiter. Legacy keys-only jobs retain stream-copy assembly compatibility. Transition overlap reduces final duration; overlays and music do not extend the main track.
 
 ## Upload integrity
 
@@ -52,3 +52,13 @@ A single API host is a deliberate first implementation. For high availability, m
 ## Measurement plan
 
 For a cloud demo, record source duration/size, number of segments, worker count, cold/warm state, export wall time, cache hits, and failure/reclaim timestamps. Compare one worker with multiple workers using multiple clips; a one-clip export cannot demonstrate parallel segment speedup. Publish measured results and test conditions rather than theoretical speedups.
+
+## Accounts, drafts, and reviews
+
+Verification tokens expire in 24 hours and reset tokens in 30 minutes. SQLite stores only token hashes. Reset consumes the token and revokes every session for the account. Mail links carry the token in a URL fragment, which the account page immediately removes from browser history. Failed delivery removes its unusable token and returns an explicit service error. A local mailbox requires an explicit development flag and is never exposed through HTTP.
+
+Cloud bootstrap requires verified email before writes. Existing local installations retain optional enforcement for compatibility. New projects require an independent approval by default; the author cannot approve their own commit. Each reviewer's latest approval/change request determines the gate. Any current change request blocks new exports until that reviewer approves. The owner can configure the gate; changing a commit requires a fresh approval.
+
+Shared manifests retain the latest 101 revisions per branch. SSE includes head, draft revision, presence, and approval state. Presence is project-wide; it is not a cursor or selection protocol. SQLite serializes writes. Each active SSE connection occupies an HTTP thread; this deployment should be measured with a small trusted demo group before opening it broadly.
+
+CloudFront uses a VPC origin to reach an internal ALB. An origin header and CloudFront prefix-list ingress restrict origin access; caching is disabled for the authenticated application. The API trusts CloudFront viewer addresses for rate limiting only after validating the origin header. The generated HTTPS hostname avoids a purchased domain requirement. Origin/API and worker traffic inside the restricted VPC use HTTP; end-to-end internal TLS remains a further hardening step.

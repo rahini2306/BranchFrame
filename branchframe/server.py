@@ -52,8 +52,23 @@ class APIError(Exception):
 class App:
     def __init__(self, root):
         self.store = Store(root)
+        from .accounts import Mailer, RateLimit
+
+        self.mailer = Mailer(self.store.root)
+        self.rate_limit = RateLimit()
+
+    def verified(self, db, user):
+        if (
+            os.environ.get("BRANCHFRAME_REQUIRE_VERIFIED_EMAIL") == "1"
+            and not db.execute(
+                "SELECT 1 FROM verified_emails WHERE user=?", (user,)
+            ).fetchone()
+        ):
+            raise APIError(403, "Verify your email before changing projects.")
 
     def access(self, db, project, user, write=False, owner=False):
+        if write:
+            self.verified(db, user)
         row = db.execute(
             "SELECT role FROM members WHERE project=? AND user=?", (project, user)
         ).fetchone()
@@ -67,7 +82,7 @@ class App:
 
     def timeline(self, db, project, value):
         timeline = validate_timeline(value)
-        for clip in timeline["clips"]:
+        for clip in timeline["clips"] + timeline.get("audio", []):
             if not db.execute(
                 "SELECT 1 FROM assets WHERE id=? AND project=?",
                 (clip["asset"], project),
@@ -122,17 +137,37 @@ class App:
                     (render["id"],),
                 )
             ]
+        from .collaboration import approval
+
+        result["approval"] = {
+            c["id"]: approval(db, project, c["id"]) for c in result["commits"]
+        }
+        settings = db.execute(
+            "SELECT require_approval FROM project_settings WHERE project=?", (project,)
+        ).fetchone()
+        result["require_approval"] = bool(settings and settings[0])
         return result
 
     def api(self, method, path, data, user, query):
         parts = [unquote(p) for p in path.strip("/").split("/")]
-        with self.store.connect(immediate=method != "GET") as db:
+        with self.store.connect(
+            immediate=method != "GET" or path.endswith("/draft")
+        ) as db:
+            if method == "POST":
+                self.verified(db, user)
             if path == "/api/me":
-                return dict(
+                row = dict(
                     db.execute(
                         "SELECT id,email,name FROM users WHERE id=?", (user,)
                     ).fetchone()
                 )
+                row["email_verified"] = bool(
+                    db.execute(
+                        "SELECT 1 FROM verified_emails WHERE user=?", (user,)
+                    ).fetchone()
+                )
+                row["email_delivery"] = self.mailer.configured
+                return row
             if path == "/api/projects":
                 if method == "GET":
                     return [
@@ -148,6 +183,13 @@ class App:
                     db.execute(
                         "INSERT INTO projects VALUES(?,?,?,?)",
                         (project, name, user, time.time()),
+                    )
+                    required = data.get("require_approval", True)
+                    if not isinstance(required, bool):
+                        raise APIError(400, "require_approval must be boolean")
+                    db.execute(
+                        "INSERT INTO project_settings VALUES(?,?)",
+                        (project, int(required)),
                     )
                     db.execute(
                         "INSERT INTO members VALUES(?,?,?)", (project, user, "owner")
@@ -171,6 +213,12 @@ class App:
             if len(parts) == 3 and method == "GET":
                 return self.snapshot(db, project, user)
             action = parts[3] if len(parts) > 3 else ""
+            if action in ("draft", "settings"):
+                from .collaboration import action as collaborative_action
+
+                return collaborative_action(
+                    self, db, project, user, method, action, data, query
+                )
             if action == "members" and method == "POST":
                 self.access(db, project, user, owner=True)
                 member = db.execute(
@@ -214,9 +262,21 @@ class App:
                 if not row or row["head"] != expected:
                     raise APIError(409, "Branch changed. Reload before committing.")
                 timeline = self.timeline(db, project, data.get("timeline"))
+                shared = db.execute(
+                    "SELECT timeline FROM drafts WHERE project=? AND branch=?",
+                    (project, branch),
+                ).fetchone()
+                if shared and json.loads(shared[0]) != timeline:
+                    raise APIError(
+                        409, "Shared draft changed. Synchronize before committing."
+                    )
                 cid = self.commit(
                     db, project, [expected], timeline, text(data, "message", 200), user
                 )
+                if shared:
+                    from .collaboration import replace_draft
+
+                    replace_draft(db, project, branch, cid, timeline, user)
                 db.execute(
                     "UPDATE branches SET head=? WHERE project=? AND name=?",
                     (cid, project, branch),
@@ -285,6 +345,9 @@ class App:
                         "UPDATE branches SET head=? WHERE project=? AND name=?",
                         (cid, project, target),
                     )
+                    from .collaboration import replace_draft
+
+                    replace_draft(db, project, target, cid, timeline, user)
                     result["id"] = cid
                 return result
             if action == "reviews" and method == "POST":
@@ -296,6 +359,14 @@ class App:
                 kind = data.get("kind", "comment")
                 if kind not in ("comment", "approve", "request_changes"):
                     raise APIError(400, "Invalid review type")
+                if kind == "approve":
+                    author = db.execute(
+                        "SELECT author FROM commits WHERE id=?", (cid,)
+                    ).fetchone()[0]
+                    if author == user:
+                        raise APIError(
+                            400, "An independent teammate must approve this commit."
+                        )
                 at = float(data.get("at", 0))
                 if not 0 <= at <= 3600:
                     raise APIError(400, "Invalid timestamp")
@@ -321,9 +392,18 @@ class App:
                 ).fetchone()
                 if not row:
                     raise APIError(404, "Revision not found")
+                from .collaboration import approval
+
+                if not approval(db, project, cid)["allowed"]:
+                    raise APIError(
+                        403,
+                        "Export blocked: an independent approval is required and change requests must be resolved.",
+                    )
                 clips = json.loads(row["timeline"])["clips"]
-                if not clips:
-                    raise APIError(400, "Add at least one clip before exporting")
+                if not clips or not any(c.get("track", 0) == 0 for c in clips):
+                    raise APIError(
+                        400, "Add at least one clip on video track 0 before exporting"
+                    )
                 if (
                     db.execute(
                         "SELECT COUNT(*) FROM renders WHERE project=? AND status IN ('queued','rendering')",
@@ -350,7 +430,7 @@ class App:
                             "project": project,
                             "sha": asset["sha"],
                             "spec": render_spec,
-                            "renderer": 2,
+                            "renderer": 3,
                         }
                     )
                     cached = db.execute(
@@ -394,7 +474,20 @@ class App:
                     rid,
                     "assemble",
                     len(keys),
-                    canonical({"keys": keys}),
+                    canonical(
+                        {
+                            "keys": keys,
+                            "timeline": json.loads(
+                                db.execute(
+                                    "SELECT c.timeline FROM renders r JOIN commits c ON c.id=r.commit_id WHERE r.id=?",
+                                    (rid,),
+                                ).fetchone()[0]
+                            ),
+                            "project": db.execute(
+                                "SELECT project FROM renders WHERE id=?", (rid,)
+                            ).fetchone()[0],
+                        }
+                    ),
                     "queued",
                 ),
             )
@@ -536,9 +629,38 @@ class Handler(BaseHTTPRequestHandler):
             raise APIError(400, "Expected a JSON object")
         return value
 
+    def client_ip(self):
+        # Trust edge identity only when the private origin header authenticates it.
+        secret = os.environ.get("BRANCHFRAME_ORIGIN_SECRET", "")
+        if secret and hmac.compare_digest(
+            self.headers.get("X-BranchFrame-Origin", ""), secret
+        ):
+            import ipaddress
+
+            address = (
+                self.headers.get("CloudFront-Viewer-Address", "")
+                .rsplit(":", 1)[0]
+                .strip("[]")
+            )
+            try:
+                return str(ipaddress.ip_address(address))
+            except ValueError:
+                pass
+        return self.client_address[0]
+
     def handle_request(self):
         parsed = urlsplit(self.path)
         path = parsed.path
+        secret = os.environ.get("BRANCHFRAME_ORIGIN_SECRET", "")
+        if (
+            secret
+            and path != "/api/health"
+            and not path.startswith("/internal/")
+            and not hmac.compare_digest(
+                self.headers.get("X-BranchFrame-Origin", ""), secret
+            )
+        ):
+            raise APIError(403, "Use the website HTTPS address")
         if self.command == "POST":
             origin = self.headers.get("Origin")
             if origin and urlsplit(origin).netloc != self.headers.get("Host"):
@@ -572,10 +694,22 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return self.reply(200, {"ok": True})
             raise APIError(404, "Not found")
+        if path in (
+            "/api/request-verification",
+            "/api/verify-email",
+            "/api/request-password-reset",
+            "/api/reset-password",
+        ):
+            from .accounts import handle
+
+            return handle(self, path)
         if path in ("/api/register", "/api/login") and self.command == "POST":
+            self.app.rate_limit.check(("login", self.client_ip()), limit=30)
             data = self.body()
             email = text(data, "email", 254).lower()
-            password = text(data, "password", 200)
+            password = data.get("password", "")
+            if not isinstance(password, str) or len(password) > 200:
+                raise APIError(400, "Invalid password")
             if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
                 raise APIError(400, "Enter a valid email")
             if len(password) < 10:
@@ -609,6 +743,14 @@ class Handler(BaseHTTPRequestHandler):
                         time.time() + 86400 * 7,
                     ),
                 )
+            if path == "/api/register" and self.app.mailer.configured:
+                from .accounts import issue
+
+                try:
+                    issue(self.app, user, "verify")
+                except Exception:
+                    # Do not log addresses, delivery bodies, or single-use tokens.
+                    self.log_message("Verification delivery failed; retry is available")
             secure = (
                 "; Secure" if os.environ.get("BRANCHFRAME_SECURE_COOKIE") == "1" else ""
             )
@@ -639,6 +781,13 @@ class Handler(BaseHTTPRequestHandler):
                     {
                         "Set-Cookie": "bf_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"
                     },
+                )
+            stream = re.fullmatch(r"/api/projects/([a-f0-9]{32})/events", path)
+            if stream and self.command == "GET":
+                from .collaboration import events
+
+                return events(
+                    self, stream[1], parse_qs(parsed.query).get("branch", ["main"])[0]
                 )
             resumable = re.fullmatch(
                 r"/api/projects/([a-f0-9]{32})/uploads(?:/(.*))?", path
@@ -709,7 +858,18 @@ class Handler(BaseHTTPRequestHandler):
         with self.app.store.connect() as db:
             self.app.access(db, project, user, write=True)
         name = unquote(self.headers.get("X-Filename", "video.mp4"))[:160]
-        if Path(name).suffix.lower() not in (".mp4", ".mov", ".webm", ".m4v"):
+        if Path(name).suffix.lower() not in (
+            ".mp4",
+            ".mov",
+            ".webm",
+            ".m4v",
+            ".mp3",
+            ".wav",
+            ".m4a",
+            ".ogg",
+            ".aac",
+            ".flac",
+        ):
             raise APIError(400, "Supported formats: MP4, MOV, WebM, M4V")
         aid = uid()
         sha = hashlib.sha256()
@@ -773,6 +933,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(block)
                 remaining -= len(block)
 
+    def log_message(self, format, *args):
+        # Never log URL query strings or account tokens.
+        if args:
+            args = (str(args[0]).split("?")[0],) + args[1:]
+        super().log_message(format, *args)
+
     def do_GET(self):
         self.dispatch()
 
@@ -803,6 +969,12 @@ def main():
     parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
     app = App(args.data)
+    if os.environ.get("BRANCHFRAME_REQUIRE_VERIFIED_EMAIL") == "1" and (
+        not app.mailer.configured or os.environ.get("BRANCHFRAME_DEV_MAILBOX") == "1"
+    ):
+        raise SystemExit(
+            "Production email verification requires configured SMTP or SES delivery."
+        )
     if renderer_available():
         from .worker import local_loop
 

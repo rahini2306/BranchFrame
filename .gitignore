@@ -13,3 +13,4 @@ worker-data/
 !*.tfvars.example
 *.tfplan
 *.zip
+cloud-smoke-results.json

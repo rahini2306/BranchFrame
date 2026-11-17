@@ -39,7 +39,7 @@ def probe_media(source):
                     "-protocol_whitelist",
                     "file,pipe",
                     "-format_whitelist",
-                    "mov,matroska,webm",
+                    "mov,matroska,webm,mp3,wav,ogg,aac,flac",
                     "-show_streams",
                     "-show_format",
                     "-of",
@@ -60,7 +60,7 @@ def probe_media(source):
             "-protocol_whitelist",
             "file,pipe",
             "-format_whitelist",
-            "mov,matroska,webm",
+            "mov,matroska,webm,mp3,wav,ogg,aac,flac",
             "-i",
             str(source),
         ],
@@ -122,7 +122,7 @@ def execute(store, job):
                 "-protocol_whitelist",
                 "file,pipe",
                 "-format_whitelist",
-                "mov,matroska,webm",
+                "mov,matroska,webm,mp3,wav,ogg,aac,flac",
                 "-ss",
                 str(clip["start"]),
                 "-i",
@@ -140,7 +140,7 @@ def execute(store, job):
                 "-vf",
                 filters,
                 "-af",
-                "aresample=48000,asetpts=PTS-STARTPTS",
+                f"aresample=48000,asetpts=PTS-STARTPTS,volume={clip.get('volume', 1)}",
                 "-c:v",
                 "libx264",
                 "-preset",
@@ -163,6 +163,11 @@ def execute(store, job):
             ]
             run(args)
             key = "segments/" + payload["cache_key"] + ".mp4"
+        elif "timeline" in job["payload"]:
+            from .rendering import assemble
+
+            assemble(store, job["payload"], output, ffmpeg, run)
+            key = "exports/" + job["render"] + ".mp4"
         else:
             paths = [store.get(key) for key in job["payload"]["keys"]]
             # All filenames are generated identifiers under the controlled store.
